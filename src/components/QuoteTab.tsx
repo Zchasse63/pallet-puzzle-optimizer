@@ -1,8 +1,8 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import TabTransition from './common/TabTransition';
 import { toast } from 'sonner';
+import QuotePdfPreview from './QuotePdfPreview';
 
 interface Product {
   id: number;
@@ -24,6 +24,8 @@ const QuoteTab: React.FC<QuoteTabProps> = ({
   totalPallets, 
   setActiveTab 
 }) => {
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  
   // Sample pricing data (would come from a real pricing engine in production)
   const productPrices = {
     1: 5.85, // Product A
@@ -46,10 +48,7 @@ const QuoteTab: React.FC<QuoteTabProps> = ({
   const grandTotal = productsTotal + shippingCost + importDuties;
   
   const handleDownloadQuote = () => {
-    toast.success("Quote PDF prepared for download", {
-      description: "Your quote PDF is ready to download",
-      duration: 3000
-    });
+    setShowPdfPreview(true);
   };
   
   const handleEmailQuote = () => {
@@ -234,6 +233,18 @@ const QuoteTab: React.FC<QuoteTabProps> = ({
           Back to Pallet View
         </motion.button>
       </div>
+      
+      {showPdfPreview && (
+        <QuotePdfPreview 
+          products={products}
+          containerUtilization={containerUtilization}
+          totalPallets={totalPallets}
+          productPrices={productPrices}
+          shippingCost={shippingCost}
+          importDuties={importDuties}
+          onClose={() => setShowPdfPreview(false)}
+        />
+      )}
     </TabTransition>
   );
 };
