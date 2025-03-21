@@ -1,0 +1,22 @@
+{
+  "tasks": {
+    "deploy": "supabase functions deploy send-quote-email"
+  },
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "checkJs": false,
+    "lib": ["deno.window"],
+    "noImplicitAny": false
+  },
+  "importMap": "./import_map.json",
+  "lint": {
+    "files": {
+      "include": ["./**/*.ts"]
+    }
+  },
+  "fmt": {
+    "files": {
+      "include": ["./**/*.ts"]
+    }
+  }
+}

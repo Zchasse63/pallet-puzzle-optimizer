@@ -3,13 +3,17 @@ import { motion } from 'framer-motion';
 import TabTransition from './common/TabTransition';
 import { toast } from 'sonner';
 import QuotePdfPreview from './QuotePdfPreview';
-
-interface Product {
-  id: number;
-  name: string;
-  quantity: number;
-  unitsPerPallet: number;
-}
+import WebQuotePreview from './WebQuotePreview';
+import { FileText, Globe, Mail, ArrowLeft } from 'lucide-react';
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "./ui/dialog";
+import { Label } from "./ui/label";
+import { Input } from "./ui/input";
+import { Textarea } from "./ui/textarea";
+import { sendQuoteEmail } from "../lib/email-service";
+import { useProducts, useProductStats, useIsLoading, useUIActions } from '@/lib/store';
+import ErrorBoundary from './common/ErrorBoundary';
+import { Product } from '@/lib/types';
 
 interface QuoteTabProps {
   products: Product[];
@@ -18,49 +22,138 @@ interface QuoteTabProps {
   setActiveTab: (tab: string) => void;
 }
 
-const QuoteTab: React.FC<QuoteTabProps> = ({ 
-  products, 
-  containerUtilization, 
-  totalPallets, 
-  setActiveTab 
+/**
+ * QuoteTab component displays quote summary and provides options to generate PDF, web, or email quotes
+ */
+const QuoteTab: React.FC<QuoteTabProps> = ({
+  products,
+  containerUtilization,
+  totalPallets,
+  setActiveTab
 }) => {
+  // Use isLoading from store
+  const isLoading = useIsLoading();
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [showWebPreview, setShowWebPreview] = useState(false);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailData, setEmailData] = useState({
+    recipientEmail: '',
+    customerName: '',
+    customerCompany: '',
+    additionalNotes: ''
+  });
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   
-  // Sample pricing data (would come from a real pricing engine in production)
-  const productPrices = {
-    1: 5.85, // Product A
-    2: 8.25, // Product B
-    3: 7.50  // Product C
-  };
-  
-  const shippingCost = 3850;
-  const importDuties = 1228;
+  // Standard markup for pricing comparison
+  const standardMarkup = 0.22; // 22% markup for standard pricing
   
   const calculateProductTotal = (product: Product) => {
-    return product.quantity * (productPrices[product.id as keyof typeof productPrices] || 0);
+    return product.quantity * (product.price || 0);
   };
   
-  const productsTotal = products.reduce(
+  // Calculate the standard price (what it would cost without container discount)
+  const calculateStandardPrice = (product: Product) => {
+    return product.price ? product.price * (1 + standardMarkup) : 0;
+  };
+  
+  // Calculate product totals, filtering out products with zero quantity
+  const productsWithQuantity = products.filter(product => product.quantity > 0);
+  
+  const productsTotal = productsWithQuantity.reduce(
     (sum, product) => sum + calculateProductTotal(product), 
     0
   );
   
-  const grandTotal = productsTotal + shippingCost + importDuties;
+  const grandTotal = productsTotal;
   
-  const handleDownloadQuote = () => {
+  // Create a mock quote object for the WebQuotePreview component
+  const mockQuote = {
+    id: `quote-${Math.floor(Math.random() * 10000)}`,
+    quote_number: `Q-${Math.floor(Math.random() * 10000)}`,
+    products: productsWithQuantity,
+    container_utilization: containerUtilization,
+    total_pallets: totalPallets,
+    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+    created_at: new Date().toISOString(),
+    view_count: 0
+  };
+  
+  const handlePdfQuote = () => {
     setShowPdfPreview(true);
   };
   
+  const handleWebQuote = () => {
+    setShowWebPreview(true);
+  };
+  
   const handleEmailQuote = () => {
-    toast.success("Quote sent successfully", {
-      description: "The quote has been emailed to you",
-      duration: 3000
-    });
+    setShowEmailDialog(true);
+  };
+
+  const handleSendEmail = async () => {
+    if (!emailData.recipientEmail) {
+      toast.error("Please enter a recipient email address");
+      return;
+    }
+
+    setIsSendingEmail(true);
+    
+    try {
+      const quoteId = `Q-${Math.floor(Math.random() * 10000)}`;
+      
+      const result = await sendQuoteEmail({
+        recipientEmail: emailData.recipientEmail,
+        quoteId,
+        products: productsWithQuantity,
+        containerUtilization,
+        totalPallets,
+        customerName: emailData.customerName,
+        customerCompany: emailData.customerCompany,
+        additionalNotes: emailData.additionalNotes
+      });
+      
+      if (result.success) {
+        toast.success("Quote sent successfully", {
+          description: `The quote has been emailed to ${emailData.recipientEmail}`,
+          duration: 3000
+        });
+        setShowEmailDialog(false);
+        // Reset form
+        setEmailData({
+          recipientEmail: '',
+          customerName: '',
+          customerCompany: '',
+          additionalNotes: ''
+        });
+      } else {
+        toast.error("Failed to send email", {
+          description: result.message,
+          duration: 5000
+        });
+      }
+    } catch (error) {
+      console.error('Error sending email:', error);
+      toast.error("An unexpected error occurred", {
+        description: "Please try again later",
+        duration: 5000
+      });
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+  
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setEmailData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
   
   return (
     <TabTransition id="quote" className="py-6 px-6">
-      <div className="mb-6">
+      <ErrorBoundary>
+        <div className="mb-6">
         <h2 className="text-2xl font-medium mb-2">Quote Summary</h2>
         <p className="text-gray-600">
           Complete shipment quote including products, shipping, and duties
@@ -77,7 +170,7 @@ const QuoteTab: React.FC<QuoteTabProps> = ({
         <div className="flex flex-col sm:flex-row gap-y-4">
           <div className="flex-1">
             <div className="mb-1 text-blue-800"><span className="font-medium">Container Type:</span> 40' Standard</div>
-            <div className="mb-1 text-blue-800"><span className="font-medium">Utilization:</span> {containerUtilization}%</div>
+            <div className="mb-1 text-blue-800"><span className="font-medium">Utilization:</span> {containerUtilization.toFixed(1)}%</div>
             <div className="text-blue-800"><span className="font-medium">Total Pallets:</span> {totalPallets} (after arrival)</div>
           </div>
           <div className="flex-1">
@@ -119,35 +212,13 @@ const QuoteTab: React.FC<QuoteTabProps> = ({
                 >
                   <td className="py-4 px-4">{product.name}</td>
                   <td className="py-4 px-4 text-right">{product.quantity.toLocaleString()}</td>
-                  <td className="py-4 px-4 text-right">${productPrices[product.id as keyof typeof productPrices].toFixed(2)}</td>
+                  <td className="py-4 px-4 text-right">${(product.price || 0).toFixed(2)}</td>
                   <td className="py-4 px-4 text-right">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </motion.tr>
               );
             })}
             
-            <motion.tr 
-              className="border-t border-gray-100"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-            >
-              <td className="py-4 px-4">Shipping & Handling</td>
-              <td className="py-4 px-4 text-right">-</td>
-              <td className="py-4 px-4 text-right">-</td>
-              <td className="py-4 px-4 text-right">${shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            </motion.tr>
-            
-            <motion.tr 
-              className="border-t border-gray-100"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.7 }}
-            >
-              <td className="py-4 px-4">Import Duties</td>
-              <td className="py-4 px-4 text-right">-</td>
-              <td className="py-4 px-4 text-right">-</td>
-              <td className="py-4 px-4 text-right">${importDuties.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            </motion.tr>
+            {/* Shipping and import duties are now added as products when needed */}
             
             <motion.tr 
               className="bg-gray-50 font-medium"
@@ -174,10 +245,10 @@ const QuoteTab: React.FC<QuoteTabProps> = ({
           <h3 className="text-lg font-medium mb-3">Savings Analysis</h3>
           <div className="p-4 bg-green-50 rounded-lg border border-green-100">
             <p className="text-green-800 mb-2">
-              <span className="font-medium">Container Discount:</span> 22% savings vs. individual pallet ordering
+              <span className="font-medium">Container Discount:</span> 22.0% savings vs. individual pallet ordering
             </p>
             <p className="text-green-800">
-              <span className="font-medium">Per Unit Cost:</span> $5.85 vs. $7.50 (regular pricing)
+              <span className="font-medium">Average Per Unit Cost:</span> Container pricing vs. standard pricing (22.0% savings)
             </p>
           </div>
         </motion.div>
@@ -188,63 +259,149 @@ const QuoteTab: React.FC<QuoteTabProps> = ({
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.5, duration: 0.5 }}
         >
-          <h3 className="text-lg font-medium mb-3">Next Steps</h3>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <motion.button
-              className="flex-1 bg-green-500 text-white px-5 py-2.5 rounded-md font-medium shadow-sm hover:shadow-md hover:bg-green-600 transition-all-200 flex items-center justify-center"
-              onClick={handleDownloadQuote}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+          <h3 className="text-lg font-medium mb-3">Quote Options</h3>
+          <div className="flex flex-col sm:flex-row gap-3 mb-3">
+            <Button
+              variant="secondary"
+              className="flex-1 bg-green-500 text-white hover:bg-green-600 flex items-center justify-center"
+              onClick={handlePdfQuote}
+              disabled={isLoading}
             >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download Quote PDF
-            </motion.button>
+              <FileText className="w-5 h-5 mr-2" />
+              PDF Quote
+            </Button>
             
-            <motion.button
-              className="flex-1 bg-app-blue text-white px-5 py-2.5 rounded-md font-medium shadow-sm hover:shadow-md hover:bg-app-dark-blue transition-all-200 flex items-center justify-center"
-              onClick={handleEmailQuote}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+            <Button
+              variant="secondary"
+              className="flex-1 bg-indigo-500 text-white hover:bg-indigo-600 flex items-center justify-center"
+              onClick={handleWebQuote}
+              disabled={isLoading}
             >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
+              <Globe className="w-5 h-5 mr-2" />
+              Web Quote
+            </Button>
+          </div>
+          
+          <h3 className="text-lg font-medium mb-3">Share Options</h3>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button
+              className="flex-1 bg-app-blue text-white hover:bg-app-dark-blue flex items-center justify-center"
+              onClick={handleEmailQuote}
+              disabled={isLoading}
+            >
+              <Mail className="w-5 h-5 mr-2" />
               Email Quote
-            </motion.button>
+            </Button>
           </div>
         </motion.div>
       </div>
       
+      </ErrorBoundary>
+      
       <div className="flex justify-start mt-6">
-        <motion.button
-          className="bg-gray-100 px-5 py-2.5 rounded-md text-gray-700 hover:bg-gray-200 transition-all-200 flex items-center"
-          onClick={() => setActiveTab('pallets')}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
         >
-          <svg className="w-5 h-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd" />
-          </svg>
-          Back to Pallet View
-        </motion.button>
+          <Button
+            variant="outline"
+            className="bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center"
+            onClick={() => setActiveTab('pallets')}
+            disabled={isLoading}
+          >
+            <ArrowLeft className="w-5 h-5 mr-2" />
+            Back to Pallet View
+          </Button>
+        </motion.div>
       </div>
       
       {showPdfPreview && (
         <QuotePdfPreview 
-          products={products}
+          products={productsWithQuantity}
           containerUtilization={containerUtilization}
           totalPallets={totalPallets}
-          productPrices={productPrices}
-          shippingCost={shippingCost}
-          importDuties={importDuties}
           onClose={() => setShowPdfPreview(false)}
         />
       )}
+      
+      {showWebPreview && (
+        <WebQuotePreview 
+          quote={mockQuote}
+          onClose={() => setShowWebPreview(false)}
+        />
+      )}
+      
+      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Email Quote</DialogTitle>
+            <DialogDescription>
+              Send this quote to yourself or a customer via email.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="recipientEmail" className="required">Recipient Email</Label>
+              <Input
+                id="recipientEmail"
+                name="recipientEmail"
+                type="email"
+                placeholder="email@example.com"
+                value={emailData.recipientEmail}
+                onChange={handleInputChange}
+                required
+                autoFocus
+              />
+            </div>
+            
+            <div className="grid gap-2">
+              <Label htmlFor="customerName">Customer Name</Label>
+              <Input
+                id="customerName"
+                name="customerName"
+                placeholder="John Doe"
+                value={emailData.customerName}
+                onChange={handleInputChange}
+              />
+            </div>
+            
+            <div className="grid gap-2">
+              <Label htmlFor="customerCompany">Company</Label>
+              <Input
+                id="customerCompany"
+                name="customerCompany"
+                placeholder="Acme Inc."
+                value={emailData.customerCompany}
+                onChange={handleInputChange}
+              />
+            </div>
+            
+            <div className="grid gap-2">
+              <Label htmlFor="additionalNotes">Additional Notes</Label>
+              <Textarea
+                id="additionalNotes"
+                name="additionalNotes"
+                placeholder="Add any special instructions or notes here..."
+                value={emailData.additionalNotes}
+                onChange={handleInputChange}
+                rows={3}
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEmailDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleSendEmail} 
+              disabled={isSendingEmail || !emailData.recipientEmail}
+            >
+              {isSendingEmail ? 'Sending...' : 'Send Email'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TabTransition>
   );
 };
