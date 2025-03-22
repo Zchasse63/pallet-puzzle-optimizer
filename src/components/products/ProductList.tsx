@@ -1,304 +1,225 @@
-'use client';
-
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
-import { Product } from '@/types';
+import { useState } from 'react';
+import { useProducts } from '@/hooks/useProducts';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Edit, Trash2, ArrowUpDown, Loader2 } from 'lucide-react';
+import { formatDimensions } from '@/lib/utils';
 import { toast } from 'sonner';
-import { 
-  Package, 
-  Pencil, 
-  Trash2, 
-  Search, 
-  ArrowUpDown,
-  Loader2,
-  AlertCircle
-} from 'lucide-react';
-import Link from 'next/link';
-import { useSupabase } from '@/contexts/SupabaseContext';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import { announceToScreenReader } from '@/lib/utils';
+import { Product } from '@/types';
 
 export default function ProductList() {
-  const router = useRouter();
-  const { user } = useSupabase();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { products, isLoading, error, deleteProduct, formatDate } = useProducts();
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<keyof Product>('name');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof Product;
+    direction: 'ascending' | 'descending';
+  } | null>(null);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [sortField, sortDirection]);
-  
-  // Check URL params for success messages
-  useEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search);
-    const action = searchParams.get('action');
+  // Handle search
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+  };
+
+  // Handle sort
+  const handleSort = (key: keyof Product) => {
+    let direction: 'ascending' | 'descending' = 'ascending';
     
-    if (action === 'added') {
-      toast.success('Product added successfully');
-      // Clean up the URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (action === 'updated') {
-      toast.success('Product updated successfully');
-      // Clean up the URL
-      window.history.replaceState({}, document.title, window.location.pathname);
+    if (sortConfig?.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
     }
-  }, []);
-
-  const fetchProducts = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      let query = supabase
-        .from('products')
-        .select('*');
-
-      const { data, error } = await query;
-
-      if (error) {
-        throw error;
-      }
-
-      // Sort data
-      const sortedData = [...(data || [])].sort((a, b) => {
-        const aValue = a[sortField];
-        const bValue = b[sortField];
-
-        if (typeof aValue === 'string' && typeof bValue === 'string') {
-          return sortDirection === 'asc' 
-            ? aValue.localeCompare(bValue) 
-            : bValue.localeCompare(aValue);
-        }
-
-        if (aValue === null || aValue === undefined) return sortDirection === 'asc' ? -1 : 1;
-        if (bValue === null || bValue === undefined) return sortDirection === 'asc' ? 1 : -1;
-
-        return sortDirection === 'asc' 
-          ? (aValue < bValue ? -1 : 1) 
-          : (bValue < aValue ? -1 : 1);
-      });
-
-      setProducts(sortedData);
-    } catch (err: any) {
-      console.error('Error fetching products:', err);
-      setError(err.message || 'Failed to load products');
-      toast.error('Failed to load products', {
-        description: err.message || 'Please try again later',
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    
+    setSortConfig({ key, direction });
   };
 
-  const handleSort = (field: keyof Product) => {
-    if (field === sortField) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
+  // Handle delete
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
-
-    try {
-      setIsDeleting(id);
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        throw error;
+    if (window.confirm('Are you sure you want to delete this product?')) {
+      const result = await deleteProduct(id);
+      
+      if (result.success) {
+        toast.success('Product deleted successfully');
+        announceToScreenReader('Product deleted successfully', 'polite');
+      } else {
+        toast.error('Failed to delete product', {
+          description: result.error || 'Please try again later',
+        });
+        announceToScreenReader(`Error: ${result.error || 'Failed to delete product'}`, 'assertive');
       }
-
-      setProducts(products.filter(product => product.id !== id));
-      toast.success('Product deleted successfully');
-    } catch (err: any) {
-      console.error('Error deleting product:', err);
-      toast.error('Failed to delete product', {
-        description: err.message || 'Please try again later',
-      });
-    } finally {
-      setIsDeleting(null);
     }
   };
 
-  const filteredProducts = products.filter(product => 
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (product.description && product.description.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // Filter and sort products
+  const filteredProducts = products
+    .filter(product => {
+      if (!searchTerm) return true;
+      
+      const searchLower = searchTerm.toLowerCase();
+      return (
+        product.name.toLowerCase().includes(searchLower) ||
+        product.sku.toLowerCase().includes(searchLower) ||
+        (product.description?.toLowerCase().includes(searchLower) || false)
+      );
+    })
+    .sort((a, b) => {
+      if (!sortConfig) return 0;
+      
+      const { key, direction } = sortConfig;
+      
+      if (key === 'dimensions') {
+        // Special handling for dimensions
+        const volumeA = a.dimensions.length * a.dimensions.width * a.dimensions.height;
+        const volumeB = b.dimensions.length * b.dimensions.width * b.dimensions.height;
+        
+        return direction === 'ascending'
+          ? volumeA - volumeB
+          : volumeB - volumeA;
+      }
+      
+      const aValue = a[key];
+      const bValue = b[key];
+      
+      if (aValue < bValue) {
+        return direction === 'ascending' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return direction === 'ascending' ? 1 : -1;
+      }
+      return 0;
+    });
 
-  // Format dimensions for display
-  const formatDimensions = (dimensions: any) => {
-    if (!dimensions) return 'N/A';
-    const { length, width, height, unit } = dimensions;
-    return `${length} × ${width} × ${height} ${unit}`;
-  };
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" data-testid="loading-spinner" />
+        <p>Loading products...</p>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center">
+        <p className="text-destructive font-semibold mb-2">{error}</p>
+        <p className="text-muted-foreground">Please try again later</p>
+      </div>
+    );
+  }
+
+  // Empty state
+  if (products.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center border rounded-lg">
+        <h3 className="font-semibold text-lg mb-2">No products found</h3>
+        <p className="text-muted-foreground mb-4">Create your first product to get started</p>
+      </div>
+    );
+  }
 
   return (
-    <ProtectedRoute>
-      <div className="bg-white shadow-md rounded-lg overflow-hidden">
-        <div className="p-4 border-b">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search products..."
-              className="pl-10 pr-4 py-2 w-full border rounded-md focus:ring-blue-500 focus:border-blue-500"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="flex justify-center items-center p-8">
-            <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
-            <span className="ml-2 text-gray-600">Loading products...</span>
-          </div>
-        ) : error ? (
-          <div className="flex justify-center items-center p-8 text-red-500">
-            <AlertCircle className="h-6 w-6 mr-2" />
-            {error}
-          </div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="text-center p-8 text-gray-500">
-            <Package className="h-12 w-12 mx-auto text-gray-400 mb-2" />
-            <p className="mb-2">No products found</p>
-            <Link 
-              href="/products/add" 
-              className="text-blue-600 hover:text-blue-800 font-medium"
-            >
-              Add your first product
-            </Link>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th 
-                    scope="col" 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort('name')}
-                  >
-                    <div className="flex items-center">
-                      Name
-                      {sortField === 'name' && (
-                        <ArrowUpDown className="ml-1 h-4 w-4" />
-                      )}
-                    </div>
-                  </th>
-                  <th 
-                    scope="col" 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort('sku')}
-                  >
-                    <div className="flex items-center">
-                      SKU
-                      {sortField === 'sku' && (
-                        <ArrowUpDown className="ml-1 h-4 w-4" />
-                      )}
-                    </div>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Dimensions
-                  </th>
-                  <th 
-                    scope="col" 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort('price')}
-                  >
-                    <div className="flex items-center">
-                      Price
-                      {sortField === 'price' && (
-                        <ArrowUpDown className="ml-1 h-4 w-4" />
-                      )}
-                    </div>
-                  </th>
-                  <th 
-                    scope="col" 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort('units_per_pallet')}
-                  >
-                    <div className="flex items-center">
-                      Units/Pallet
-                      {sortField === 'units_per_pallet' && (
-                        <ArrowUpDown className="ml-1 h-4 w-4" />
-                      )}
-                    </div>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredProducts.map((product) => (
-                  <tr key={product.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-gray-100 rounded-full flex items-center justify-center">
-                          <Package className="h-5 w-5 text-gray-500" />
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{product.name}</div>
-                          {product.description && (
-                            <div className="text-sm text-gray-500 truncate max-w-xs">{product.description}</div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.sku}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDimensions(product.dimensions)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.price ? `$${product.price.toFixed(2)}` : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.units_per_pallet || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <Link
-                        href={`/products/edit/${product.id}`}
-                        className="text-indigo-600 hover:text-indigo-900 mr-4"
-                      >
-                        <Pencil className="h-4 w-4 inline" />
-                        <span className="sr-only">Edit</span>
-                      </Link>
-                      <button
-                        onClick={() => product.id && handleDelete(product.id)}
-                        disabled={isDeleting === product.id}
-                        className="text-red-600 hover:text-red-900 disabled:opacity-50"
-                      >
-                        {isDeleting === product.id ? (
-                          <Loader2 className="h-4 w-4 inline animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4 inline" />
-                        )}
-                        <span className="sr-only">Delete</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+    <div className="space-y-4">
+      <div className="flex items-center">
+        <Input
+          placeholder="Search products..."
+          value={searchTerm}
+          onChange={handleSearch}
+          className="max-w-sm"
+        />
       </div>
-    </ProtectedRoute>
+
+      <div className="border rounded-md overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead 
+                className="w-[200px] cursor-pointer"
+                onClick={() => handleSort('name')}
+                aria-sort={sortConfig?.key === 'name' ? sortConfig.direction : undefined}
+              >
+                <div className="flex items-center">
+                  Name
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                </div>
+              </TableHead>
+              <TableHead 
+                className="cursor-pointer"
+                onClick={() => handleSort('sku')}
+                aria-sort={sortConfig?.key === 'sku' ? sortConfig.direction : undefined}
+              >
+                <div className="flex items-center">
+                  SKU
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                </div>
+              </TableHead>
+              <TableHead 
+                className="cursor-pointer"
+                onClick={() => handleSort('dimensions')}
+                aria-sort={sortConfig?.key === 'dimensions' ? sortConfig.direction : undefined}
+              >
+                <div className="flex items-center">
+                  Dimensions
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                </div>
+              </TableHead>
+              <TableHead 
+                className="cursor-pointer"
+                onClick={() => handleSort('weight')}
+                aria-sort={sortConfig?.key === 'weight' ? sortConfig.direction : undefined}
+              >
+                <div className="flex items-center">
+                  Weight
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                </div>
+              </TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredProducts.map((product) => (
+              <TableRow key={product.id}>
+                <TableCell className="font-medium">{product.name}</TableCell>
+                <TableCell>{product.sku}</TableCell>
+                <TableCell>
+                  {formatDimensions(
+                    product.dimensions.length,
+                    product.dimensions.width,
+                    product.dimensions.height,
+                    product.dimensions.unit
+                  )}
+                </TableCell>
+                <TableCell>{product.weight} kg</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <Button variant="ghost" size="sm">
+                      <Edit className="h-4 w-4 mr-1" />
+                      Edit
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => handleDelete(product.id)}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Delete
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }

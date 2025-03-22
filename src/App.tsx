@@ -1,26 +1,32 @@
-import { Suspense, useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
-import LoadingSkeleton from "./components/common/LoadingSkeleton";
-import SimplePage from "./SimplePage";
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { Toaster } from 'sonner';
+import { ThemeProvider } from './components/theme/theme-provider';
+import Layout from './components/layout/Layout';
+import Dashboard from './pages/Dashboard';
+import Products from './pages/Products';
+import Optimizer from './pages/Optimizer';
+import Quotes from './pages/Quotes';
+import Settings from './pages/Settings';
+import NotFound from './pages/NotFound';
 
-/**
- * Main application component
- * Handles routing for the application using a simplified approach
- * that avoids conflicts between React Router and Next.js App Router
- */
-
-const App = () => {
-  useEffect(() => {
-    console.log("App mounted");
-  }, []);
+function App() {
   return (
-    <Suspense fallback={<LoadingSkeleton height="100vh" />}>
-      <Routes>
-        <Route path="/" element={<SimplePage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+    <ThemeProvider defaultTheme="system" storageKey="pallet-optimizer-theme">
+      <Router>
+        <Toaster position="top-right" richColors />
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="products" element={<Products />} />
+            <Route path="optimizer" element={<Optimizer />} />
+            <Route path="quotes" element={<Quotes />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </Router>
+    </ThemeProvider>
   );
-};
+}
 
 export default App;
