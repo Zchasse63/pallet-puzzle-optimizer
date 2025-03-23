@@ -1,26 +1,27 @@
-import { Suspense, useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
-import LoadingSkeleton from "./components/common/LoadingSkeleton";
-import SimplePage from "./SimplePage";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Index from "./pages/Index";
+import NotFound from "./pages/NotFound";
 
-/**
- * Main application component
- * Handles routing for the application using a simplified approach
- * that avoids conflicts between React Router and Next.js App Router
- */
+const queryClient = new QueryClient();
 
-const App = () => {
-  useEffect(() => {
-    console.log("App mounted");
-  }, []);
-  return (
-    <Suspense fallback={<LoadingSkeleton height="100vh" />}>
-      <Routes>
-        <Route path="/" element={<SimplePage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
-  );
-};
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
 export default App;

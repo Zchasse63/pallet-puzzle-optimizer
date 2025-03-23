@@ -2,12 +2,21 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
-import { Product } from '../lib/types';
+
+interface Product {
+  id: number;
+  name: string;
+  quantity: number;
+  unitsPerPallet: number;
+}
 
 interface QuotePdfPreviewProps {
   products: Product[];
   containerUtilization: number;
   totalPallets: number;
+  productPrices: Record<number, number>;
+  shippingCost: number;
+  importDuties: number;
   onClose: () => void;
 }
 
@@ -15,16 +24,13 @@ const QuotePdfPreview: React.FC<QuotePdfPreviewProps> = ({
   products,
   containerUtilization,
   totalPallets,
+  productPrices,
+  shippingCost,
+  importDuties,
   onClose
 }) => {
   const calculateProductTotal = (product: Product) => {
-    return product.quantity * (product.price || 0);
-  };
-  
-  // Calculate the standard price (what it would cost without container discount)
-  const standardMarkup = 0.22; // 22% markup for standard pricing
-  const calculateStandardPrice = (product: Product) => {
-    return product.price ? product.price * (1 + standardMarkup) : 0;
+    return product.quantity * (productPrices[product.id] || 0);
   };
   
   const productsTotal = products.reduce(
@@ -32,7 +38,7 @@ const QuotePdfPreview: React.FC<QuotePdfPreviewProps> = ({
     0
   );
   
-  const grandTotal = productsTotal;
+  const grandTotal = productsTotal + shippingCost + importDuties;
   
   const currentDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
@@ -122,13 +128,25 @@ const QuotePdfPreview: React.FC<QuotePdfPreviewProps> = ({
                     <tr key={product.id} className="border-t">
                       <td className="py-2 px-4 border">{product.name}</td>
                       <td className="py-2 px-4 border text-right">{product.quantity.toLocaleString()}</td>
-                      <td className="py-2 px-4 border text-right">${(product.price || 0).toFixed(2)}</td>
+                      <td className="py-2 px-4 border text-right">${productPrices[product.id].toFixed(2)}</td>
                       <td className="py-2 px-4 border text-right">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   );
                 })}
                 
-                {/* Shipping and import duties are now added as products when needed */}
+                <tr className="border-t">
+                  <td className="py-2 px-4 border">Shipping & Handling</td>
+                  <td className="py-2 px-4 border text-right">-</td>
+                  <td className="py-2 px-4 border text-right">-</td>
+                  <td className="py-2 px-4 border text-right">${shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+                
+                <tr className="border-t">
+                  <td className="py-2 px-4 border">Import Duties</td>
+                  <td className="py-2 px-4 border text-right">-</td>
+                  <td className="py-2 px-4 border text-right">-</td>
+                  <td className="py-2 px-4 border text-right">${importDuties.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
                 
                 <tr className="bg-gray-50 font-medium">
                   <td className="py-2 px-4 border">Total</td>
@@ -148,7 +166,7 @@ const QuotePdfPreview: React.FC<QuotePdfPreviewProps> = ({
                 <span className="font-medium">Container Discount:</span> 22% savings vs. individual pallet ordering
               </p>
               <p className="text-green-800">
-                <span className="font-medium">Average Per Unit Cost:</span> Container pricing vs. standard pricing (22.0% savings)
+                <span className="font-medium">Per Unit Cost:</span> $5.85 vs. $7.50 (regular pricing)
               </p>
             </div>
           </div>
